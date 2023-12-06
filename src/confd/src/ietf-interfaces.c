@@ -653,6 +653,59 @@ skip_mtu:
 	return err;
 }
 
+static int netdag_write_ethtool(struct dagger *net, const char *ifname,
+				const char *fmt, ...)
+{
+	va_list ap;
+	FILE *fp;
+
+	fp = dagger_fopen_next(net, "init", ifname, 65, "ethtool.sh");
+	if (!fp)
+		return -EIO;
+
+	va_start(ap, fmt);
+	vfprintf(fp, fmt, ap);
+	va_end(ap);
+
+	fclose(fp);
+
+	return 0;
+}
+
+static int netdag_gen_ethtool(struct dagger *net, struct lyd_node *dif)
+{
+	const char *ifname = lydx_get_cattr(dif, "name");
+	struct lyd_node *node;
+	struct lydx_diff nd;
+
+	if (!strcmp(ifname, "lo"))
+		return SR_ERR_OK;
+
+	node = lydx_get_descendant(lyd_child(dif), "ethernet", "auto-negotiation", "enable", NULL);
+	if (node && lydx_get_diff(node, &nd) && nd.new) {
+		const char *val = (strcmp(nd.val, "true") == 0) ? "on" : "off";
+
+		if (netdag_write_ethtool(net, ifname, "ethtool -s %s autoneg %s\n", ifname, val))
+			return SR_ERR_SYS;
+	}
+
+	node = lydx_get_descendant(lyd_child(dif), "ethernet", "duplex", NULL);
+	if (node && lydx_get_diff(node, &nd) && nd.new) {
+		if (netdag_write_ethtool(net, ifname, "ethtool -s %s duplex %s\n", ifname, nd.val))
+			return SR_ERR_SYS;
+	}
+
+	node = lydx_get_descendant(lyd_child(dif), "ethernet", "speed", NULL);
+	if (node && lydx_get_diff(node, &nd) && nd.new) {
+		int mbs = (int)(atof(nd.val) * 1000);
+
+		if (netdag_write_ethtool(net, ifname, "ethtool -s %s speed %d\n", ifname, mbs))
+			return SR_ERR_SYS;
+	}
+
+	return SR_ERR_OK;
+}
+
 static int bridge_diff_vlan_port(struct dagger *net, FILE *br, const char *brname, int vid,
 				       const char *brport, int tagged, enum lydx_op op)
 {
@@ -1139,6 +1192,8 @@ static sr_error_t netdag_gen_iface(struct dagger *net,
 		fprintf(ip, "link set dev %s up state up\n", ifname);
 
 	err = err ? : netdag_gen_sysctl(net, cif, dif);
+
+	err = err ? : netdag_gen_ethtool(net, dif);
 
 err_close_ip:
 	fclose(ip);
