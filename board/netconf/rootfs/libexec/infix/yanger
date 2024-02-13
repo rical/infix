@@ -556,6 +556,46 @@ def add_ethtool_std(ifname, iface_out, test):
             num = round((int(num) / 1000), 3)
             insert(iface_out, "ieee802-ethernet-interface:ethernet", "speed", str(num))
 
+# Helper function to add tagged/untagged interfaces to a vlan dict in a list
+def _add_vlan_iface(vlans, vid, key, val):
+    for d in vlans:
+        if d['vid'] == vid:
+            if key in d:
+                d[key].append(val)
+            else:
+                d[key] = [val]
+            return
+    vlans.append({'vid': vid, key: [val]})
+
+def add_bridge_vlan(brname, iface_out, test):
+    if test:
+        cmd = ['cat', f"{test}/bridge-link.json"]
+    else:
+        cmd = ['bridge', '-j', 'link']
+
+    slaves = [] # Contains all interfaces that has this bridge as 'master'
+    for iface in run_json_cmd(cmd):
+        if "master" in iface and iface['master'] == brname:
+            slaves.append(iface['ifname'])
+
+    if test:
+        cmd = ['cat', f"{test}/bridge-vlan.json"]
+    else:
+        cmd = ['bridge', '-j', 'vlan']
+
+    vlans = [] # Contains all vlans and slaves belonging to this bridge
+    for iface in run_json_cmd(cmd):
+        if iface['ifname'] not in slaves:
+            continue
+
+        for vlan in iface['vlans']:
+            if 'flags' in vlan and 'Egress Untagged' in vlan['flags']:
+                _add_vlan_iface(vlans, vlan['vlan'], 'untagged', iface['ifname'])
+            else:
+                _add_vlan_iface(vlans, vlan['vlan'], 'tagged', iface['ifname'])
+
+    insert(iface_out, "infix-interfaces:bridge", "vlans", "vlan", vlans)
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="YANG data creator")
@@ -588,6 +628,10 @@ if __name__ == "__main__":
         if 'type' in iface_out and iface_out['type'] == "infix-if-type:ethernet":
             add_ethtool_groups(ifname, iface_out, args.test)
             add_ethtool_std(ifname, iface_out, args.test)
+
+        if 'type' in iface_out and iface_out['type'] == "infix-if-type:bridge":
+            add_bridge_vlan(ifname, iface_out, args.test)
+
     elif (args.model == 'ietf-routing'):
         yang_data = {
             "ietf-routing:routing": {
