@@ -338,6 +338,21 @@ def add_ospf(ospf):
     insert(ospf, "ietf-ospf:areas", "area", areas)
     add_ospf_routes(ospf)
 
+def get_bridge_port_pvid(ifname, test):
+    if test:
+        cmd = ['cat', f"{test}/bridge-vlan.json"]
+    else:
+        cmd = ['bridge', '-j', 'vlan']
+
+    for iface in run_json_cmd(cmd):
+        if iface['ifname'] != ifname:
+            continue
+
+        for vlan in iface['vlans']:
+            if 'flags' in vlan and 'PVID' in vlan['flags']:
+                return vlan['vlan']
+    return None
+
 def add_ip_link(ifname, iface_out, test):
     if test:
         cmd = ['cat', f"{test}/ip-link-show-dev-{ifname}.json"]
@@ -362,6 +377,9 @@ def add_ip_link(ifname, iface_out, test):
 
     if 'master' in iface_in:
         insert(iface_out, "infix-interfaces:bridge-port", "bridge", iface_in['master'])
+        pvid = get_bridge_port_pvid(ifname, test)
+        if pvid is not None:
+            insert(iface_out, "infix-interfaces:bridge-port", "pvid", pvid)
 
     if 'link' in iface_in and not iface_is_dsa(iface_in):
         insert(iface_out, "infix-interfaces:vlan", "lower-layer-if", iface_in['link'])
