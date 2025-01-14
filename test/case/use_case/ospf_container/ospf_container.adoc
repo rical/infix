@@ -75,7 +75,7 @@ endif::topdoc[]
 
 ==== Topology
 ifdef::topdoc[]
-image::../../test/case/use_case/ospf_container/topology.svg[OSPF Container topology]
+image::{topdoc}../../test/case/use_case/ospf_container/topology.svg[OSPF Container topology]
 endif::topdoc[]
 ifndef::topdoc[]
 ifdef::testgroup[]
